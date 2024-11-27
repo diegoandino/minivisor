@@ -104,7 +104,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to read initrd: %v", err)
 	}
-	fmt.Printf("Initrd read successfully, size: %d bytes\n", len(initrd))
+	fmt.Printf("Initramfs read successfully, size: %d bytes\n", len(initrd))
 
 	// Setup memory and load kernel
 	fmt.Printf("Setting up kernel memory...\n")
@@ -112,4 +112,9 @@ func main() {
 		log.Fatalf("Failed to setup kernel memory: %v", err)
 	}
 	fmt.Printf("Kernel memory setup completed successfully\n")
+
+	fmt.Printf("Starting VM boot...\n")
+	if err := vm.Boot(); err != nil {
+		log.Fatalf("VM boot failed: %v", err)
+	}
 }

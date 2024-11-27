@@ -19,6 +19,20 @@ type VM struct {
 	Vcpu   *vcpu.VCPU
 }
 
+func (vm *VM) Boot() error {
+	// Initialize registers
+	/* if err := vm.Vcpu.TestRegisters(); err != nil {
+		return fmt.Errorf("register test failed: %v", err)
+	} */
+
+	if err := vm.Vcpu.InitializeRegisters(); err != nil {
+		return fmt.Errorf("failed to initialize registers: %v", err)
+	}
+
+	fmt.Printf("Starting VCPU execution...\n")
+	return vm.Vcpu.Run()
+}
+
 func (vm *VM) Close() error {
 	if vm.Vcpu != nil {
 		if err := vm.Vcpu.Close(); err != nil {
