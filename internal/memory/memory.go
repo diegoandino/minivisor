@@ -14,6 +14,8 @@ const (
 	CMDLINE_ADDR     = 0x20000
 	KERNEL_LOAD_ADDR = 0x100000  // 1MB mark
 	INITRD_LOAD_ADDR = 0x1000000 // 16MB mark
+
+	CMDLINE = "console=ttyS0 earlyprintk=serial,ttyS0 debug nokaslr"
 )
 
 type VM struct {
@@ -23,36 +25,27 @@ type VM struct {
 }
 
 type BootParams struct {
-	SetupSects        uint8
-	RootFlags         uint16
-	SysSize           uint32
-	RamSize           uint32
-	VideoPMode        uint16
-	RootDev           uint16
-	Signature         uint16
-	JumpInst          uint16
-	Header            uint32
-	Version           uint16
-	RealModeSwitch    uint32
-	StartSysSeg       uint16
-	KernelVersion     uint16
-	TypeOfLoader      uint8
-	LoadFlags         uint8
-	SetupMoveSize     uint16
-	Code32Start       uint32
-	RamdiskImage      uint32
-	RamdiskSize       uint32
-	BootSectKludge    uint32
-	HeapEndPtr        uint16
-	ExtLoaderVer      uint8
-	ExtLoaderType     uint8
-	CmdlinePtr        uint32
-	InitrdAddrMax     uint32
-	KernelAlignment   uint32
-	RelocatableKernel uint8
-	MinAlignment      uint8
-	XLoadFlags        uint16
-	CmdlineSize       uint32
+	SetupSects    uint8
+	RootFlags     uint16
+	SysSize       uint32
+	RamSize       uint32
+	VideoPMode    uint16
+	RootDev       uint16
+	Signature     uint16 // Must be 0xAA55
+	JumpInst      uint16
+	Header        uint32 // Must be "HdrS" (0x53726448)
+	Version       uint16
+	TypeOfLoader  uint8
+	LoadFlags     uint8
+	SetupMoveSize uint16
+	Code32Start   uint32
+	RamdiskImage  uint32
+	RamdiskSize   uint32
+	CmdlinePtr    uint32
+	HeapEndPtr    uint16
+	ExtLoaderVer  uint8
+	ExtLoaderType uint8
+	CmdlineSize   uint32
 }
 
 func (vm *VM) Boot() error {
@@ -86,7 +79,7 @@ func (vm *VM) Close() error {
 }
 
 func (vm *VM) SetupKernelMemory(kernel []byte, initrd []byte) error {
-	// Initialize memory management
+	// Initialize memory if needed
 	if vm.Memory == nil {
 		memory, err := vmm.NewVMMemory(vm.FD)
 		if err != nil {
@@ -95,13 +88,13 @@ func (vm *VM) SetupKernelMemory(kernel []byte, initrd []byte) error {
 		vm.Memory = memory
 	}
 
-	// Setup main memory region
+	// Setup the main memory region
 	if err := vm.Memory.SetupMemoryRegion(0, 0, vmm.MEM_SIZE); err != nil {
 		return fmt.Errorf("failed to setup main memory region: %v", err)
 	}
 
-	// Set up kernel command line
-	cmdline := "console=ttyS0 earlyprintk=serial nokaslr"
+	// Write command line
+	cmdline := CMDLINE
 	if err := vm.Memory.WritePhysical(CMDLINE_ADDR, []byte(cmdline+"\x00")); err != nil {
 		return fmt.Errorf("failed to write command line: %v", err)
 	}
@@ -110,24 +103,41 @@ func (vm *VM) SetupKernelMemory(kernel []byte, initrd []byte) error {
 	bootParams := &BootParams{
 		Signature:    0xAA55,
 		Header:       0x53726448, // "HdrS"
+		Version:      0x0202,     // Protocol version 2.02
+		TypeOfLoader: 0xFF,       // Undefined bootloader
 		LoadFlags:    0x01,       // LOADED_HIGH
-		TypeOfLoader: 0xFF,
+		SetupSects:   0,          // Use default of 4
 		RamdiskImage: INITRD_LOAD_ADDR,
 		RamdiskSize:  uint32(len(initrd)),
 		CmdlinePtr:   CMDLINE_ADDR,
 		CmdlineSize:  uint32(len(cmdline) + 1),
+		HeapEndPtr:   0xFE00, // Default heap end
+		ExtLoaderVer: 0,      // No extended bootloader
 	}
 
+	fmt.Printf("Boot Parameters:\n")
+	fmt.Printf("  Signature: 0x%x\n", bootParams.Signature)
+	fmt.Printf("  Header: 0x%x\n", bootParams.Header)
+	fmt.Printf("  Version: 0x%x\n", bootParams.Version)
+	fmt.Printf("  RamdiskImage: 0x%x\n", bootParams.RamdiskImage)
+	fmt.Printf("  RamdiskSize: %d\n", bootParams.RamdiskSize)
+	fmt.Printf("  CmdlinePtr: 0x%x\n", bootParams.CmdlinePtr)
+	fmt.Printf("  CmdlineSize: %d\n", bootParams.CmdlineSize)
+	fmt.Printf("  Command line: %s\n", cmdline)
+
 	// Write boot parameters
-	bootParamsData := (*[0x1000]byte)(unsafe.Pointer(bootParams))[:unsafe.Sizeof(*bootParams)]
+	bootParamsData := (*[unsafe.Sizeof(BootParams{})]byte)(unsafe.Pointer(bootParams))[:]
 	if err := vm.Memory.WritePhysical(BOOT_PARAM_ADDR, bootParamsData); err != nil {
 		return fmt.Errorf("failed to write boot parameters: %v", err)
 	}
 
-	// Load kernel
+	// Load kernel at 1MB mark
 	if err := vm.Memory.WritePhysical(KERNEL_LOAD_ADDR, kernel); err != nil {
 		return fmt.Errorf("failed to load kernel: %v", err)
 	}
+
+	fmt.Printf("Kernel loaded at 0x%x, size: %d bytes\n", KERNEL_LOAD_ADDR, len(kernel))
+	fmt.Printf("Initrd loaded at 0x%x, size: %d bytes\n", INITRD_LOAD_ADDR, len(initrd))
 
 	// Load initrd
 	if err := vm.Memory.WritePhysical(INITRD_LOAD_ADDR, initrd); err != nil {

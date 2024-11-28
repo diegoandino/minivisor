@@ -72,6 +72,8 @@ func (k *KVMSystem) GetVCPUMMAPSize() (int, error) {
 }
 
 func main() {
+	//os.Stdout.Sync()
+
 	// Enable debug output
 	fmt.Printf("Starting KVM initialization...\n")
 
@@ -116,6 +118,9 @@ func main() {
 	if err := vm.SetupSerial(); err != nil {
 		log.Fatalf("Failed to setup serial console: %v", err)
 	}
+
+	fmt.Printf("Process ID: %d\n", os.Getpid())
+	fmt.Printf("Parent Process ID: %d\n", os.Getppid())
 
 	fmt.Printf("Starting VM boot...\n")
 	if err := vm.Boot(); err != nil {
