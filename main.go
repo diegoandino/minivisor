@@ -113,6 +113,10 @@ func main() {
 	}
 	fmt.Printf("Kernel memory setup completed successfully\n")
 
+	if err := vm.SetupSerial(); err != nil {
+		log.Fatalf("Failed to setup serial console: %v", err)
+	}
+
 	fmt.Printf("Starting VM boot...\n")
 	if err := vm.Boot(); err != nil {
 		log.Fatalf("VM boot failed: %v", err)

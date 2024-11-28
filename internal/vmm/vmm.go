@@ -11,7 +11,23 @@ const (
 	KVM_SET_USER_MEMORY_REGION = 0x4020ae46
 	PAGE_SIZE                  = 4096
 	MEM_SIZE                   = 1024 * 1024 * 256 // 256MB of RAM for the VM
+
+	SERIAL_PORT_COM1 = 0x3f8
+	SERIAL_IRQ_COM1  = 4
 )
+
+type SerialPort struct {
+	Port       uint16 // Base I/O port
+	IRQ        uint8  // Interrupt number
+	DataReg    uint16 // Data register (base + 0)
+	IERReg     uint16 // Interrupt Enable Register (base + 1)
+	FCRReg     uint16 // FIFO Control Register (base + 2)
+	LCRReg     uint16 // Line Control Register (base + 3)
+	MCRReg     uint16 // Modem Control Register (base + 4)
+	LSRReg     uint16 // Line Status Register (base + 5)
+	MSRReg     uint16 // Modem Status Register (base + 6)
+	ScratchReg uint16 // Scratch Register (base + 7)
+}
 
 // KVMUserspaceMemoryRegion represents a memory region in the VM
 type KVMUserspaceMemoryRegion struct {
@@ -102,4 +118,12 @@ func (vmm *VMMemory) ReadPhysical(physAddr uint64, size uint64) ([]byte, error) 
 	data := make([]byte, size)
 	copy(data, vmm.memory[physAddr:physAddr+size])
 	return data, nil
+}
+
+func (vmm *VMMemory) SetupSerialPort() error {
+	// Just configure the port settings - actual I/O will be handled by VCPU
+	// No need to write to physical memory for I/O ports
+	fmt.Printf("Serial port COM1 configured at 0x%x with IRQ %d\n",
+		SERIAL_PORT_COM1, SERIAL_IRQ_COM1)
+	return nil
 }

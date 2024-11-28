@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"minivisor/internal/vcpu"
 	"minivisor/internal/vmm"
+	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
 
 const (
+	BOOT_PARAM_ADDR  = 0x10000
+	CMDLINE_ADDR     = 0x20000
 	KERNEL_LOAD_ADDR = 0x100000  // 1MB mark
 	INITRD_LOAD_ADDR = 0x1000000 // 16MB mark
 )
@@ -19,12 +22,41 @@ type VM struct {
 	Vcpu   *vcpu.VCPU
 }
 
+type BootParams struct {
+	SetupSects        uint8
+	RootFlags         uint16
+	SysSize           uint32
+	RamSize           uint32
+	VideoPMode        uint16
+	RootDev           uint16
+	Signature         uint16
+	JumpInst          uint16
+	Header            uint32
+	Version           uint16
+	RealModeSwitch    uint32
+	StartSysSeg       uint16
+	KernelVersion     uint16
+	TypeOfLoader      uint8
+	LoadFlags         uint8
+	SetupMoveSize     uint16
+	Code32Start       uint32
+	RamdiskImage      uint32
+	RamdiskSize       uint32
+	BootSectKludge    uint32
+	HeapEndPtr        uint16
+	ExtLoaderVer      uint8
+	ExtLoaderType     uint8
+	CmdlinePtr        uint32
+	InitrdAddrMax     uint32
+	KernelAlignment   uint32
+	RelocatableKernel uint8
+	MinAlignment      uint8
+	XLoadFlags        uint16
+	CmdlineSize       uint32
+}
+
 func (vm *VM) Boot() error {
 	// Initialize registers
-	/* if err := vm.Vcpu.TestRegisters(); err != nil {
-		return fmt.Errorf("register test failed: %v", err)
-	} */
-
 	if err := vm.Vcpu.InitializeRegisters(); err != nil {
 		return fmt.Errorf("failed to initialize registers: %v", err)
 	}
@@ -54,7 +86,7 @@ func (vm *VM) Close() error {
 }
 
 func (vm *VM) SetupKernelMemory(kernel []byte, initrd []byte) error {
-	// Ensure we have memory management initialized
+	// Initialize memory management
 	if vm.Memory == nil {
 		memory, err := vmm.NewVMMemory(vm.FD)
 		if err != nil {
@@ -63,24 +95,46 @@ func (vm *VM) SetupKernelMemory(kernel []byte, initrd []byte) error {
 		vm.Memory = memory
 	}
 
-	// Setup the main memory region
+	// Setup main memory region
 	if err := vm.Memory.SetupMemoryRegion(0, 0, vmm.MEM_SIZE); err != nil {
 		return fmt.Errorf("failed to setup main memory region: %v", err)
 	}
 
-	// Load kernel at 1MB mark
+	// Set up kernel command line
+	cmdline := "console=ttyS0 earlyprintk=serial nokaslr"
+	if err := vm.Memory.WritePhysical(CMDLINE_ADDR, []byte(cmdline+"\x00")); err != nil {
+		return fmt.Errorf("failed to write command line: %v", err)
+	}
+
+	// Setup boot parameters
+	bootParams := &BootParams{
+		Signature:    0xAA55,
+		Header:       0x53726448, // "HdrS"
+		LoadFlags:    0x01,       // LOADED_HIGH
+		TypeOfLoader: 0xFF,
+		RamdiskImage: INITRD_LOAD_ADDR,
+		RamdiskSize:  uint32(len(initrd)),
+		CmdlinePtr:   CMDLINE_ADDR,
+		CmdlineSize:  uint32(len(cmdline) + 1),
+	}
+
+	// Write boot parameters
+	bootParamsData := (*[0x1000]byte)(unsafe.Pointer(bootParams))[:unsafe.Sizeof(*bootParams)]
+	if err := vm.Memory.WritePhysical(BOOT_PARAM_ADDR, bootParamsData); err != nil {
+		return fmt.Errorf("failed to write boot parameters: %v", err)
+	}
+
+	// Load kernel
 	if err := vm.Memory.WritePhysical(KERNEL_LOAD_ADDR, kernel); err != nil {
 		return fmt.Errorf("failed to load kernel: %v", err)
 	}
 
-	// Load initrd if provided
-	if initrd != nil {
-		if err := vm.Memory.WritePhysical(INITRD_LOAD_ADDR, initrd); err != nil {
-			return fmt.Errorf("failed to load initrd: %v", err)
-		}
+	// Load initrd
+	if err := vm.Memory.WritePhysical(INITRD_LOAD_ADDR, initrd); err != nil {
+		return fmt.Errorf("failed to load initrd: %v", err)
 	}
 
-	// Setup initial VCPU state for kernel boot
+	// Create VCPU if not exists
 	if vm.Vcpu == nil {
 		fmt.Printf("Creating new VCPU...\n")
 		vcpu, err := vcpu.NewVCPU(vm.FD, 0)
@@ -91,16 +145,12 @@ func (vm *VM) SetupKernelMemory(kernel []byte, initrd []byte) error {
 		fmt.Printf("VCPU created successfully!\n")
 	}
 
-	/* // Set initial registers for kernel boot
-	regs := &vcpu.X86Regs{
-		Rip:    KERNEL_LOAD_ADDR,
-		Rflags: 0x2,    // Enable interrupts
-		Rsp:    0x8000, // Initial stack pointer
-	}
-
-	if err := vm.Vcpu.SetRegisters(regs); err != nil {
-		return fmt.Errorf("failed to set initial registers: %v", err)
-	} */
-
 	return nil
+}
+
+func (vm *VM) SetupSerial() error {
+	if vm.Memory == nil {
+		return fmt.Errorf("VM memory not initialized")
+	}
+	return vm.Memory.SetupSerialPort()
 }
