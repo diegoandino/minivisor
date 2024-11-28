@@ -100,7 +100,7 @@ func main() {
 	}
 	fmt.Printf("Kernel read successfully, size: %d bytes\n", len(kernel))
 
-	initrd, err := os.ReadFile("kernel/initramfs.img")
+	initrd, err := os.ReadFile("kernel/initrd")
 	if err != nil {
 		log.Fatalf("Failed to read initrd: %v", err)
 	}
